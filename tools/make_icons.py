@@ -62,14 +62,15 @@ def draw_folder(rgb):
     return img
 
 
-def badge_glyph(name, size=420):
-    """White circle with a dark glyph, drawn at `size`."""
+def badge_glyph(name, size=420, circle=True):
+    """Glyph drawn at `size`, on a white circle unless circle=False."""
     g = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(g)
     ink = (40, 40, 48, 255)
-    c = size / 2
-    d.ellipse((0, 0, size - 1, size - 1), fill=(40, 40, 48, 255))
-    d.ellipse((18, 18, size - 19, size - 19), fill=(255, 255, 255, 255))
+    if circle:
+        d.ellipse((0, 0, size - 1, size - 1), fill=(40, 40, 48, 255))
+        d.ellipse((18, 18, size - 19, size - 19), fill=(255, 255, 255, 255))
+    cut = ink if circle else (0, 0, 0, 0)  # inner details punch through in mono mode
     w = int(size * 0.07)
     u = size / 100  # unit
 
@@ -95,8 +96,8 @@ def badge_glyph(name, size=420):
         d.line([P(68, 32), P(32, 68)], fill=(229, 72, 77), width=int(w * 1.4))
     elif name == "warning":
         d.polygon([P(50, 20), P(82, 76), P(18, 76)], fill=(255, 178, 36))
-        d.rectangle((*P(47, 38), *P(53, 60)), fill=ink)
-        d.ellipse((*P(46.5, 64), *P(53.5, 71)), fill=ink)
+        d.rectangle((*P(47, 38), *P(53, 60)), fill=cut)
+        d.ellipse((*P(46.5, 64), *P(53.5, 71)), fill=cut)
     elif name == "lock":
         d.arc((*P(34, 22), *P(66, 56)), 180, 360, fill=ink, width=w)
         d.line([P(34 + 3.5, 39), P(34 + 3.5, 48)], fill=ink, width=w)
@@ -131,11 +132,11 @@ def badge_glyph(name, size=420):
     elif name == "work":
         d.rounded_rectangle((*P(40, 24), *P(60, 40)), radius=int(3 * u), outline=ink, width=int(w * 0.6))
         d.rounded_rectangle((*P(22, 34), *P(78, 74)), radius=int(6 * u), fill=(160, 112, 76))
-        d.rectangle((*P(22, 50), *P(78, 53)), fill=(110, 76, 50))
+        d.rectangle((*P(22, 50), *P(78, 53)), fill=(110, 76, 50) if circle else cut)
     elif name == "home":
         d.polygon([P(50, 22), P(80, 50), P(20, 50)], fill=ink)
         d.rectangle((*P(28, 48), *P(72, 76)), fill=ink)
-        d.rectangle((*P(44, 58), *P(56, 76)), fill=(255, 255, 255))
+        d.rectangle((*P(44, 58), *P(56, 76)), fill=(255, 255, 255) if circle else cut)
     elif name == "clock":
         d.ellipse((*P(22, 22), *P(78, 78)), outline=ink, width=int(w * 0.8))
         d.line([P(50, 50), P(50, 32)], fill=ink, width=int(w * 0.8))
@@ -206,5 +207,76 @@ def main():
     sheet.convert("RGB").save(OUT / "preview.png")
 
 
+# ---------------------------------------------------------------- macOS style
+# Rounded folder with a soft vertical gradient and the badge embossed
+# tone-on-tone in the middle of the front panel (our own drawing, inspired
+# by the general look of macOS folders).
+
+def _gradient(size, top, bottom):
+    g = Image.new("RGBA", size)
+    w, h = size
+    d = ImageDraw.Draw(g)
+    for y in range(h):
+        t = y / max(1, h - 1)
+        d.line([(0, y), (w, y)], fill=tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)) + (255,))
+    return g
+
+
+def _paste_shape(img, box, radius, fill_img):
+    x0, y0, x1, y1 = box
+    m = Image.new("L", (x1 - x0, y1 - y0), 0)
+    ImageDraw.Draw(m).rounded_rectangle((0, 0, x1 - x0 - 1, y1 - y0 - 1), radius=radius, fill=255)
+    img.paste(fill_img.resize(m.size), (x0, y0), m)
+
+
+def draw_mac_folder(rgb, badge=None):
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    base = shade(rgb, 0.18)
+    back = shade(rgb, -0.12)
+    # soft drop shadow
+    sh = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle((80, 230, 944, 900), radius=80, fill=(0, 0, 0, 60))
+    from PIL import ImageFilter
+    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(24)))
+    d = ImageDraw.Draw(img)
+    # back + tab
+    d.rounded_rectangle((72, 150, 420, 320), radius=56, fill=back)
+    d.rounded_rectangle((72, 196, 952, 860), radius=72, fill=back)
+    # front panel with gradient and thin top highlight
+    _paste_shape(img, (72, 262, 952, 876), 72, _gradient((8, 256), shade(base, 0.12), shade(rgb, -0.04)))
+    d.rounded_rectangle((90, 266, 934, 282), radius=8, fill=shade(base, 0.45))
+    if badge:
+        gl = badge_glyph(badge, 520, circle=False).getchannel("A")
+        ink = Image.new("RGBA", gl.size, shade(rgb, -0.32) + (255,))
+        hi = Image.new("RGBA", gl.size, shade(base, 0.35) + (255,))
+        x, y = (S - 520) // 2, 316
+        img.paste(hi, (x, y + 8), gl)      # light edge below = embossed look
+        img.paste(ink, (x, y), gl)
+    return img
+
+
+def main_mac():
+    (OUT / "mac" / "folders").mkdir(parents=True, exist_ok=True)
+    (OUT / "mac" / "badged").mkdir(parents=True, exist_ok=True)
+    cell, pad, cols = 128, 16, 8
+    sheet = Image.new("RGBA", (cols * (cell + pad) + pad, 5 * (cell + pad) + pad), (250, 250, 252, 255))
+    for i, (name, hx) in enumerate(PALETTE):
+        rgb = hex2rgb(hx)
+        f = draw_mac_folder(rgb)
+        save_ico(f, OUT / "mac" / "folders" / f"{name}.ico")
+        sheet.alpha_composite(f.resize((cell, cell), Image.LANCZOS), (pad + (i % cols) * (cell + pad), pad + (i // cols) * (cell + pad)))
+        for b in BADGES:
+            save_ico(draw_mac_folder(rgb, b), OUT / "mac" / "badged" / f"{name}-{b}.ico")
+    for i, b in enumerate(BADGES):
+        rgb = hex2rgb(PALETTE[(i + 8) % len(PALETTE)][1])
+        f = draw_mac_folder(rgb, b)
+        sheet.alpha_composite(f.resize((cell, cell), Image.LANCZOS), (pad + (i % cols) * (cell + pad), pad + (2 + i // cols) * (cell + pad)))
+    for i, b in enumerate(BADGES[:8]):
+        f = draw_mac_folder(hex2rgb("#0EA5E9"), b).resize((32, 32), Image.LANCZOS).resize((cell, cell), Image.NEAREST)
+        sheet.alpha_composite(f, (pad + i * (cell + pad), pad + 4 * (cell + pad)))
+    sheet.convert("RGB").save(OUT / "mac" / "preview.png")
+
+
 if __name__ == "__main__":
     main()
+    main_mac()
