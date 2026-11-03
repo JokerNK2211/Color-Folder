@@ -208,9 +208,8 @@ def main():
 
 
 # ---------------------------------------------------------------- macOS style
-# Rounded folder with a soft vertical gradient and the badge embossed
-# tone-on-tone in the middle of the front panel (our own drawing, inspired
-# by the general look of macOS folders).
+# Our own drawing of a macOS-style folder, using the user's reference folders
+# as the shape guide. Badges are embossed tone-on-tone on the front panel.
 
 def _gradient(size, top, bottom):
     g = Image.new("RGBA", size)
@@ -229,28 +228,54 @@ def _paste_shape(img, box, radius, fill_img):
     img.paste(fill_img.resize(m.size), (x0, y0), m)
 
 
-def draw_mac_folder(rgb, badge=None):
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    base = shade(rgb, 0.18)
-    back = shade(rgb, -0.12)
-    # soft drop shadow
-    sh = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    ImageDraw.Draw(sh).rounded_rectangle((80, 230, 944, 900), radius=80, fill=(0, 0, 0, 60))
+def _bezier(p0, p1, p2, p3, n=40):
+    out = []
+    for i in range(n + 1):
+        t = i / n
+        a, b, c, d_ = (1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t ** 2, t ** 3
+        out.append((a * p0[0] + b * p1[0] + c * p2[0] + d_ * p3[0],
+                    a * p0[1] + b * p1[1] + c * p2[1] + d_ * p3[1]))
+    return out
+
+
+def draw_mac_folder(rgb, badge=None, paper=False):
+    """Shape follows the reference folders the user supplied: tall back with a
+    rounded tab that curves down on the right, a lighter front panel, and a
+    lip near the bottom edge. Optional white sheet peeking out (paper=True)."""
     from PIL import ImageFilter
-    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(24)))
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    front_top = shade(rgb, 0.24)
+    front_bot = shade(rgb, 0.17)
+    back = shade(rgb, -0.04)
+    # soft shadow
+    sh = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle((52, 230, 972, 922), radius=80, fill=(0, 0, 0, 55))
+    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(14)))
     d = ImageDraw.Draw(img)
-    # back + tab
-    d.rounded_rectangle((72, 150, 420, 320), radius=56, fill=back)
-    d.rounded_rectangle((72, 196, 952, 860), radius=72, fill=back)
-    # front panel with gradient and thin top highlight
-    _paste_shape(img, (72, 262, 952, 876), 72, _gradient((8, 256), shade(base, 0.12), shade(rgb, -0.04)))
-    d.rounded_rectangle((90, 266, 934, 282), radius=8, fill=shade(base, 0.45))
+    # back body and tab
+    d.rounded_rectangle((40, 196, 984, 904), radius=80, fill=back)
+    d.rounded_rectangle((40, 120, 400, 300), radius=72, fill=back)
+    curve = _bezier((330, 120), (410, 120), (420, 196), (500, 196))
+    d.polygon([(330, 120)] + curve + [(500, 300), (330, 300)], fill=back)
+    # subtle darker inner rim along the top of the back
+    d.rounded_rectangle((56, 214, 968, 260), radius=30, fill=shade(rgb, -0.06))
+    if paper:
+        d.rounded_rectangle((76, 222, 948, 300), radius=10, fill=(255, 255, 255, 255))
+    # front panel with vertical gradient
+    _paste_shape(img, (40, 258, 984, 904), 68, _gradient((8, 256), front_top, front_bot))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((60, 260, 964, 268), radius=4, fill=shade(rgb, 0.45))      # top highlight
+    # bottom lip: darker line, lighter band below
+    _paste_shape(img, (40, 812, 984, 904), 68, _gradient((8, 64), shade(rgb, 0.12), shade(rgb, 0.02)))
+    d = ImageDraw.Draw(img)
+    d.rectangle((40, 812, 984, 818), fill=shade(rgb, 0.10))
+    d.rectangle((40, 838, 984, 844), fill=shade(rgb, 0.40))
     if badge:
-        gl = badge_glyph(badge, 520, circle=False).getchannel("A")
-        ink = Image.new("RGBA", gl.size, shade(rgb, -0.32) + (255,))
-        hi = Image.new("RGBA", gl.size, shade(base, 0.35) + (255,))
-        x, y = (S - 520) // 2, 316
-        img.paste(hi, (x, y + 8), gl)      # light edge below = embossed look
+        gl = badge_glyph(badge, 460, circle=False).getchannel("A")
+        ink = Image.new("RGBA", gl.size, shade(rgb, -0.22) + (255,))
+        hi = Image.new("RGBA", gl.size, shade(rgb, 0.50) + (255,))
+        x, y = (S - 460) // 2, 318
+        img.paste(hi, (x, y + 7), gl)      # light edge below = embossed look
         img.paste(ink, (x, y), gl)
     return img
 
@@ -264,6 +289,7 @@ def main_mac():
         rgb = hex2rgb(hx)
         f = draw_mac_folder(rgb)
         save_ico(f, OUT / "mac" / "folders" / f"{name}.ico")
+        save_ico(draw_mac_folder(rgb, paper=True), OUT / "mac" / "folders" / f"{name}-paper.ico")
         sheet.alpha_composite(f.resize((cell, cell), Image.LANCZOS), (pad + (i % cols) * (cell + pad), pad + (i // cols) * (cell + pad)))
         for b in BADGES:
             save_ico(draw_mac_folder(rgb, b), OUT / "mac" / "badged" / f"{name}-{b}.ico")
@@ -272,7 +298,7 @@ def main_mac():
         f = draw_mac_folder(rgb, b)
         sheet.alpha_composite(f.resize((cell, cell), Image.LANCZOS), (pad + (i % cols) * (cell + pad), pad + (2 + i // cols) * (cell + pad)))
     for i, b in enumerate(BADGES[:8]):
-        f = draw_mac_folder(hex2rgb("#0EA5E9"), b).resize((32, 32), Image.LANCZOS).resize((cell, cell), Image.NEAREST)
+        f = draw_mac_folder(hex2rgb("#0EA5E9"), b, paper=(i % 2 == 1)).resize((32, 32), Image.LANCZOS).resize((cell, cell), Image.NEAREST)
         sheet.alpha_composite(f, (pad + i * (cell + pad), pad + 4 * (cell + pad)))
     sheet.convert("RGB").save(OUT / "mac" / "preview.png")
 
