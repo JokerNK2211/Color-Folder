@@ -1,0 +1,210 @@
+"""Generate the Color Folder icon set.
+
+Outputs (relative to repo root):
+  icons/folders/<color>.ico          plain colored folder, sizes 16-256
+  icons/folders/<color>.svg          same folder as SVG
+  icons/badged/<color>-<badge>.ico   colored folder with a badge
+  icons/preview.png                  contact sheet of the whole set
+
+Run:  python tools/make_icons.py   (needs Pillow)
+"""
+from pathlib import Path
+from PIL import Image, ImageDraw
+import math
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "icons"
+S = 1024                      # master canvas, downscaled for each size
+ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+
+PALETTE = [
+    ("red",    "#E5484D"), ("orange", "#F76B15"), ("amber",  "#FFB224"),
+    ("yellow", "#F5D90A"), ("lime",   "#8DC63F"), ("green",  "#30A46C"),
+    ("teal",   "#12A594"), ("sky",    "#0EA5E9"), ("blue",   "#3E63DD"),
+    ("indigo", "#5B5BD6"), ("purple", "#8E4EC6"), ("pink",   "#D6409F"),
+    ("brown",  "#A0704C"), ("gray",   "#8B8D98"), ("black",  "#2E2E33"),
+    ("white",  "#E8E8EC"),
+]
+BADGES = ["star", "heart", "check", "cross", "warning", "lock",
+          "cloud", "code", "music", "image", "play", "download",
+          "work", "home", "clock", "flag"]
+
+
+def hex2rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def shade(rgb, f):
+    """f<0 darkens, f>0 lightens."""
+    if f < 0:
+        return tuple(int(c * (1 + f)) for c in rgb)
+    return tuple(int(c + (255 - c) * f) for c in rgb)
+
+
+# Folder geometry on a 1024 canvas (Windows 11-ish: back with tab, front panel)
+BACK = (64, 176, 960, 848)          # back body
+TAB = [(64, 216), (64, 168), (88, 144), (380, 144), (440, 208)]  # tab polygon top-left
+FRONT = (64, 288, 960, 864)
+R = 56
+
+
+def draw_folder(rgb):
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    back = shade(rgb, -0.22)
+    d.rounded_rectangle((64, 144, 440, 300), radius=R, fill=back)          # tab
+    d.rounded_rectangle(BACK, radius=R, fill=back)
+    d.rounded_rectangle((96, 232, 928, 820), radius=24, fill=(255, 255, 255, 235))  # paper
+    d.rounded_rectangle(FRONT, radius=R, fill=rgb)
+    d.rounded_rectangle((64, 288, 960, 320), radius=16, fill=shade(rgb, 0.25))  # top highlight
+    d.rectangle((64, 304, 960, 330), fill=rgb)
+    return img
+
+
+def badge_glyph(name, size=420):
+    """White circle with a dark glyph, drawn at `size`."""
+    g = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(g)
+    ink = (40, 40, 48, 255)
+    c = size / 2
+    d.ellipse((0, 0, size - 1, size - 1), fill=(40, 40, 48, 255))
+    d.ellipse((18, 18, size - 19, size - 19), fill=(255, 255, 255, 255))
+    w = int(size * 0.07)
+    u = size / 100  # unit
+
+    def P(x, y):
+        return (x * u, y * u)
+
+    if name == "star":
+        pts = []
+        for i in range(10):
+            r = 32 if i % 2 == 0 else 13
+            a = -math.pi / 2 + i * math.pi / 5
+            pts.append(P(50 + r * math.cos(a), 52 + r * math.sin(a)))
+        d.polygon(pts, fill=(245, 166, 35))
+    elif name == "heart":
+        red = (229, 72, 77)
+        d.ellipse((*P(24, 26), *P(52, 54)), fill=red)
+        d.ellipse((*P(48, 26), *P(76, 54)), fill=red)
+        d.polygon([P(25.5, 45), P(74.5, 45), P(50, 76)], fill=red)
+    elif name == "check":
+        d.line([P(28, 52), P(44, 68), P(73, 34)], fill=(48, 164, 108), width=int(w * 1.4), joint="curve")
+    elif name == "cross":
+        d.line([P(32, 32), P(68, 68)], fill=(229, 72, 77), width=int(w * 1.4))
+        d.line([P(68, 32), P(32, 68)], fill=(229, 72, 77), width=int(w * 1.4))
+    elif name == "warning":
+        d.polygon([P(50, 20), P(82, 76), P(18, 76)], fill=(255, 178, 36))
+        d.rectangle((*P(47, 38), *P(53, 60)), fill=ink)
+        d.ellipse((*P(46.5, 64), *P(53.5, 71)), fill=ink)
+    elif name == "lock":
+        d.arc((*P(34, 22), *P(66, 56)), 180, 360, fill=ink, width=w)
+        d.line([P(34 + 3.5, 39), P(34 + 3.5, 48)], fill=ink, width=w)
+        d.line([P(66 - 3.5, 39), P(66 - 3.5, 48)], fill=ink, width=w)
+        d.rounded_rectangle((*P(28, 46), *P(72, 78)), radius=int(5 * u), fill=ink)
+    elif name == "cloud":
+        blue = (14, 165, 233)
+        d.ellipse((*P(22, 44), *P(46, 70)), fill=blue)
+        d.ellipse((*P(34, 28), *P(66, 62)), fill=blue)
+        d.ellipse((*P(54, 40), *P(80, 70)), fill=blue)
+        d.rectangle((*P(34, 56), *P(68, 70)), fill=blue)
+    elif name == "code":
+        d.line([P(38, 32), P(22, 50), P(38, 68)], fill=ink, width=w, joint="curve")
+        d.line([P(62, 32), P(78, 50), P(62, 68)], fill=ink, width=w, joint="curve")
+        d.line([P(55, 28), P(45, 72)], fill=ink, width=int(w * 0.8))
+    elif name == "music":
+        d.ellipse((*P(26, 60), *P(44, 76)), fill=ink)
+        d.ellipse((*P(56, 54), *P(74, 70)), fill=ink)
+        d.rectangle((*P(39, 26), *P(44, 68)), fill=ink)
+        d.rectangle((*P(69, 20), *P(74, 62)), fill=ink)
+        d.polygon([P(39, 26), P(74, 20), P(74, 30), P(39, 36)], fill=ink)
+    elif name == "image":
+        d.rounded_rectangle((*P(22, 26), *P(78, 74)), radius=int(5 * u), outline=ink, width=int(w * 0.7))
+        d.polygon([P(27, 69), P(44, 46), P(56, 60), P(63, 52), P(73, 69)], fill=(48, 164, 108))
+        d.ellipse((*P(58, 32), *P(68, 42)), fill=(255, 178, 36))
+    elif name == "play":
+        d.polygon([P(38, 28), P(74, 50), P(38, 72)], fill=(229, 72, 77))
+    elif name == "download":
+        d.rectangle((*P(45, 22), *P(55, 52)), fill=ink)
+        d.polygon([P(30, 48), P(70, 48), P(50, 68)], fill=ink)
+        d.rectangle((*P(26, 72), *P(74, 78)), fill=ink)
+    elif name == "work":
+        d.rounded_rectangle((*P(40, 24), *P(60, 40)), radius=int(3 * u), outline=ink, width=int(w * 0.6))
+        d.rounded_rectangle((*P(22, 34), *P(78, 74)), radius=int(6 * u), fill=(160, 112, 76))
+        d.rectangle((*P(22, 50), *P(78, 53)), fill=(110, 76, 50))
+    elif name == "home":
+        d.polygon([P(50, 22), P(80, 50), P(20, 50)], fill=ink)
+        d.rectangle((*P(28, 48), *P(72, 76)), fill=ink)
+        d.rectangle((*P(44, 58), *P(56, 76)), fill=(255, 255, 255))
+    elif name == "clock":
+        d.ellipse((*P(22, 22), *P(78, 78)), outline=ink, width=int(w * 0.8))
+        d.line([P(50, 50), P(50, 32)], fill=ink, width=int(w * 0.8))
+        d.line([P(50, 50), P(63, 58)], fill=ink, width=int(w * 0.8))
+    elif name == "flag":
+        d.rectangle((*P(28, 20), *P(34, 80)), fill=ink)
+        d.polygon([P(34, 22), P(74, 22), P(64, 36), P(74, 50), P(34, 50)], fill=(229, 72, 77))
+    return g
+
+
+def with_badge(folder, badge):
+    img = folder.copy()
+    g = badge_glyph(badge, 460)
+    img.alpha_composite(g, (S - 460 - 8, S - 460 - 8))
+    return img
+
+
+def save_ico(img, path):
+    img.resize((256, 256), Image.LANCZOS).save(path, format="ICO", sizes=ICO_SIZES)
+
+
+def folder_svg(rgb):
+    h = lambda c: "#%02X%02X%02X" % c
+    back, light = h(shade(rgb, -0.22)), h(shade(rgb, 0.25))
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="64" y="144" width="376" height="156" rx="56" fill="{back}"/>
+  <rect x="64" y="176" width="896" height="672" rx="56" fill="{back}"/>
+  <rect x="96" y="232" width="832" height="588" rx="24" fill="#FFFFFF" fill-opacity="0.92"/>
+  <rect x="64" y="288" width="896" height="576" rx="56" fill="{h(rgb)}"/>
+  <rect x="64" y="288" width="896" height="32" rx="16" fill="{light}"/>
+  <rect x="64" y="304" width="896" height="26" fill="{h(rgb)}"/>
+</svg>
+"""
+
+
+def main():
+    (OUT / "folders").mkdir(parents=True, exist_ok=True)
+    (OUT / "badged").mkdir(parents=True, exist_ok=True)
+    folders = {}
+    for name, hx in PALETTE:
+        rgb = hex2rgb(hx)
+        f = draw_folder(rgb)
+        folders[name] = f
+        save_ico(f, OUT / "folders" / f"{name}.ico")
+        (OUT / "folders" / f"{name}.svg").write_text(folder_svg(rgb))
+        for b in BADGES:
+            save_ico(with_badge(f, b), OUT / "badged" / f"{name}-{b}.ico")
+
+    # contact sheet: row 1-2 plain colors, then badges on blue, then 16px check
+    cell, pad = 128, 16
+    cols = 8
+    rows = 2 + 2 + 1
+    sheet = Image.new("RGBA", (cols * (cell + pad) + pad, rows * (cell + pad) + pad + 40), (250, 250, 252, 255))
+    def put(img, i, row_off, sz=cell):
+        x = pad + (i % cols) * (cell + pad)
+        y = pad + (row_off + i // cols) * (cell + pad)
+        sheet.alpha_composite(img.resize((sz, sz), Image.LANCZOS), (x, y))
+    for i, (name, _) in enumerate(PALETTE):
+        put(folders[name], i, 0)
+    for i, b in enumerate(BADGES):
+        put(with_badge(folders[PALETTE[i % len(PALETTE)][0]], b), i, 2)
+    small = Image.new("RGBA", (cell, cell), (0, 0, 0, 0))
+    for i, (name, _) in enumerate(PALETTE):
+        small.alpha_composite(folders[name].resize((32, 32), Image.LANCZOS), ((i % 4) * 32, (i // 4) * 32))
+    put(small, 0, 4)
+    for i, b in enumerate(BADGES[:7]):
+        put(with_badge(folders["amber"], b).resize((32, 32), Image.LANCZOS).resize((cell, cell), Image.NEAREST), i + 1, 4)
+    sheet.convert("RGB").save(OUT / "preview.png")
+
+
+if __name__ == "__main__":
+    main()
