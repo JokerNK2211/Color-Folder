@@ -10,6 +10,7 @@ Run:  python tools/make_icons.py   (needs Pillow)
 """
 from pathlib import Path
 from PIL import Image, ImageDraw
+import colorsys
 import math
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -228,7 +229,32 @@ def _paste_shape(img, box, radius, fill_img):
     img.paste(fill_img.resize(m.size), (x0, y0), m)
 
 
-def _bezier(p0, p1, p2, p3, n=40):
+# Reference tones measured from the user's sample folder (sky blue base).
+_REF_BASE = (14, 165, 233)
+_REF = {
+    "front":     (96, 208, 255),
+    "front_bot": (86, 200, 250),
+    "edge":      (60, 182, 236),
+    "lip":       (74, 188, 237),
+    "lip_hi":    (99, 206, 250),
+    "back":      (59, 174, 228),
+    "back_dark": (33, 165, 225),
+    "rim":       (4, 152, 217),
+}
+
+
+def _tone(rgb, key):
+    """Map a reference tone onto the palette color: keep the reference
+    lightness/saturation structure, swap in the palette hue."""
+    rh, rs, rv = colorsys.rgb_to_hsv(*[c / 255 for c in _REF[key]])
+    bh, bs, bv = colorsys.rgb_to_hsv(*[c / 255 for c in _REF_BASE])
+    ph, ps, pv = colorsys.rgb_to_hsv(*[c / 255 for c in rgb])
+    s_ = min(1.0, rs * ps / bs)
+    v_ = min(1.0, rv * pv / bv)
+    return tuple(int(round(c * 255)) for c in colorsys.hsv_to_rgb(ph, s_, v_))
+
+
+def _bezier(p0, p1, p2, p3, n=48):
     out = []
     for i in range(n + 1):
         t = i / n
@@ -238,45 +264,73 @@ def _bezier(p0, p1, p2, p3, n=40):
     return out
 
 
+def _mask_rr(box, radius):
+    m = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(m).rounded_rectangle(box, radius=radius, fill=255)
+    return m
+
+
 def draw_mac_folder(rgb, badge=None, paper=False):
-    """Shape follows the reference folders the user supplied: tall back with a
-    rounded tab that curves down on the right, a lighter front panel, and a
-    lip near the bottom edge. Optional white sheet peeking out (paper=True)."""
-    from PIL import ImageFilter
+    """Own drawing of a macOS-style folder. Proportions and tones were
+    measured from the reference folders the user supplied (1024 = 4 x 256)."""
+    from PIL import ImageFilter, ImageChops
+    T = lambda k: _tone(rgb, k)
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    front_top = shade(rgb, 0.24)
-    front_bot = shade(rgb, 0.17)
-    back = shade(rgb, -0.04)
-    # soft shadow
+
+    # shadow: short and soft, mostly under the bottom edge
     sh = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    ImageDraw.Draw(sh).rounded_rectangle((52, 230, 972, 922), radius=80, fill=(0, 0, 0, 55))
-    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(14)))
+    ImageDraw.Draw(sh).rounded_rectangle((44, 200, 980, 924), radius=96, fill=(0, 0, 0, 90))
+    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(10)))
+
+    # back body + tab (one silhouette)
+    back = Image.new("L", (S, S), 0)
+    bd = ImageDraw.Draw(back)
+    bd.rounded_rectangle((36, 176, 988, 910), radius=84, fill=255)
+    bd.rounded_rectangle((36, 118, 440, 330), radius=112, fill=255)
+    curve = _bezier((320, 118), (420, 118), (440, 194), (540, 196))
+    bd.polygon([(320, 118)] + curve + [(540, 330), (320, 330)], fill=255)
+    back = back.filter(ImageFilter.GaussianBlur(1))
+    img.paste(Image.new("RGBA", (S, S), T("back") + (255,)), (0, 0), back)
     d = ImageDraw.Draw(img)
-    # back body and tab
-    d.rounded_rectangle((40, 196, 984, 904), radius=80, fill=back)
-    d.rounded_rectangle((40, 120, 400, 300), radius=72, fill=back)
-    curve = _bezier((330, 120), (410, 120), (420, 196), (500, 196))
-    d.polygon([(330, 120)] + curve + [(500, 300), (330, 300)], fill=back)
-    # subtle darker inner rim along the top of the back
-    d.rounded_rectangle((56, 214, 968, 260), radius=30, fill=shade(rgb, -0.06))
+    # dark rim where the front meets the back
+    d.rectangle((60, 222, 964, 264), fill=T("rim"))
     if paper:
-        d.rounded_rectangle((76, 222, 948, 300), radius=10, fill=(255, 255, 255, 255))
-    # front panel with vertical gradient
-    _paste_shape(img, (40, 258, 984, 904), 68, _gradient((8, 256), front_top, front_bot))
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle((60, 260, 964, 268), radius=4, fill=shade(rgb, 0.45))      # top highlight
-    # bottom lip: darker line, lighter band below
-    _paste_shape(img, (40, 812, 984, 904), 68, _gradient((8, 64), shade(rgb, 0.12), shade(rgb, 0.02)))
-    d = ImageDraw.Draw(img)
-    d.rectangle((40, 812, 984, 818), fill=shade(rgb, 0.10))
-    d.rectangle((40, 838, 984, 844), fill=shade(rgb, 0.40))
+        d.rectangle((92, 224, 944, 262), fill=(255, 255, 255, 255))
+
+    # front panel
+    fm = _mask_rr((40, 258, 984, 906), 96).filter(ImageFilter.GaussianBlur(1))
+    front = Image.new("RGBA", (S, S))
+    fd = ImageDraw.Draw(front)
+    ft, fb = T("front"), T("front_bot")
+    for y in range(250, 907):
+        t = max(0.0, (y - 250) / 560)
+        t = min(1.0, t)
+        fd.line([(0, y), (S, y)], fill=tuple(int(ft[i] + (fb[i] - ft[i]) * t) for i in range(3)) + (255,))
+    # bottom lip: highlight line, then a slightly darker band
+    fd.rectangle((0, 812, S, 820), fill=T("lip_hi") + (255,))
+    fd.rectangle((0, 821, S, 878), fill=T("lip") + (255,))
+    fd.rectangle((0, 879, S, 907), fill=T("back_dark") + (255,))
+    fd.rectangle((0, 258, S, 268), fill=T("lip_hi") + (255,))
+    # side shading: darker toward the left/right edges
+    edge = T("edge")
+    for x in range(0, 110):
+        a = int(255 * (1 - x / 110) ** 1.6)
+        ov = Image.new("RGBA", (1, 657), edge + (a,))
+        front.alpha_composite(ov, (40 + x, 250))
+        front.alpha_composite(ov, (983 - x, 250))
+    # fine grain like the reference's paper texture
+    noise = Image.effect_noise((S // 2, S // 2), 18).resize((S, S))
+    grain = Image.merge("RGBA", (noise, noise, noise, Image.new("L", (S, S), 5)))
+    front.alpha_composite(grain)
+    img.paste(front, (0, 0), fm)
+
     if badge:
-        gl = badge_glyph(badge, 460, circle=False).getchannel("A")
-        ink = Image.new("RGBA", gl.size, shade(rgb, -0.22) + (255,))
-        hi = Image.new("RGBA", gl.size, shade(rgb, 0.50) + (255,))
-        x, y = (S - 460) // 2, 318
-        img.paste(hi, (x, y + 7), gl)      # light edge below = embossed look
-        img.paste(ink, (x, y), gl)
+        gl = badge_glyph(badge, 440, circle=False).getchannel("A")
+        x, y = (S - 440) // 2, 320
+        hi = Image.new("RGBA", gl.size, (255, 255, 255, 255))
+        ink = Image.new("RGBA", gl.size, T("rim") + (255,))
+        img.paste(hi, (x, y + 6), gl.point(lambda v: v * 0.55))
+        img.paste(ink, (x, y), gl.point(lambda v: v * 0.95))
     return img
 
 
