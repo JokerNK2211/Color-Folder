@@ -48,10 +48,10 @@ public partial class App : Application
                     ShowMain(a.Length >= 2 ? a[1] : null);
                     return;
                 case "--register":
-                    ContextMenu.Register();
+                    ShellMenu.Register();
                     break;
                 case "--unregister":
-                    ContextMenu.Unregister();
+                    ShellMenu.Unregister();
                     break;
                 case "--reset-all":
                     if (History.All().Count > 0 &&

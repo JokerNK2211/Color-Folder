@@ -28,7 +28,7 @@ public partial class MainWindow : Window
             case IconStyle.Template: StyleTemplate.IsChecked = true; break;
             default: StyleMac.IsChecked = true; break;
         }
-        MenuCheck.IsChecked = ContextMenu.IsRegistered;
+        MenuCheck.IsChecked = ShellMenu.IsRegistered;
         PortableCheck.IsChecked = Settings.Portable;
         _loading = false;
         ApplyLanguage();
@@ -147,7 +147,7 @@ public partial class MainWindow : Window
         if (Settings.Style == IconStyle.Template && Settings.TemplatePath is null) PickTemplate_Click(sender, e);
         UpdateTemplateRow();
         BuildPickers();
-        if (ContextMenu.IsRegistered) ContextMenu.Register(); // menu icons follow the style
+        if (ShellMenu.IsRegistered) ShellMenu.Register(); // menu icons follow the style
     }
 
     private void PickTemplate_Click(object sender, RoutedEventArgs e)
@@ -160,14 +160,14 @@ public partial class MainWindow : Window
         Settings.TemplatePath = copy;
         IconCache.Clear();
         UpdateTemplateRow();
-        Run(() => { BuildPickers(); if (ContextMenu.IsRegistered) ContextMenu.Register(); }, null);
+        Run(() => { BuildPickers(); if (ShellMenu.IsRegistered) ShellMenu.Register(); }, null);
     }
 
     private void Language_Click(object sender, RoutedEventArgs e)
     {
         Settings.Language = T.Thai ? "en" : "th";
         ApplyLanguage();
-        if (ContextMenu.IsRegistered) ContextMenu.Register(); // menu text follows the language
+        if (ShellMenu.IsRegistered) ShellMenu.Register(); // menu text follows the language
     }
 
     private void AddFolder_Click(object sender, RoutedEventArgs e)
@@ -211,7 +211,7 @@ public partial class MainWindow : Window
     private void Menu_Changed(object sender, RoutedEventArgs e)
     {
         if (_loading) return;
-        Run(() => { if (MenuCheck.IsChecked == true) ContextMenu.Register(); else ContextMenu.Unregister(); }, null);
+        Run(() => { if (MenuCheck.IsChecked == true) ShellMenu.Register(); else ShellMenu.Unregister(); }, null);
     }
 
     private void Portable_Changed(object sender, RoutedEventArgs e)

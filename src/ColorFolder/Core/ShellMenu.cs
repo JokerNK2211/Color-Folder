@@ -6,7 +6,7 @@ namespace ColorFolder.Core;
 /// Registers the "Color Folder" cascading menu for folders, per user (no admin).
 /// On Windows 11 it shows under "Show more options".
 /// </summary>
-public static class ContextMenu
+public static class ShellMenu
 {
     private const string Root = @"Software\Classes\Directory\shell\ColorFolder";
 
