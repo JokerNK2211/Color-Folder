@@ -174,6 +174,10 @@ def folder_svg(rgb):
 
 
 def main():
+    (OUT / "badges").mkdir(parents=True, exist_ok=True)
+    for b in BADGES:   # alpha masks used by the app to emboss badges on custom templates
+        m = badge_glyph(b, 512, circle=False).getchannel("A")
+        Image.merge("RGBA", (m, m, m, m)).save(OUT / "badges" / f"{b}.png")
     (OUT / "folders").mkdir(parents=True, exist_ok=True)
     (OUT / "badged").mkdir(parents=True, exist_ok=True)
     folders = {}
